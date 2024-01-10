@@ -120,7 +120,8 @@ class TRApi:
         if self.ws is None:
             self.ws = await websockets.connect("wss://api.traderepublic.com")
             msg = json.dumps({"locale": self.locale})
-            await self.ws.send(f"connect 21 {msg}")
+            await self.ws.send(f"connect 30 {msg}")
+            # await self.ws.send(f"connect 21 {msg}")
             response = await self.ws.recv()
 
             if not response == "connected":
@@ -172,9 +173,9 @@ class TRApi:
     # list of requests: https://github.com/J05HI/pytr
     # -----------------------------------------------------------
 
-    exchange_list = ["LSX", "TDG", "LUS", "TUB", "BHS", "B2C"]
+    exchange_list = ["LSX", "TDG", "LUS", "TUB", "BHS", "B2C", "SGL", "SGI"]
     range_list = ["1d", "5d", "1m", "3m", "1y", "max"]
-    instrument_list = ["stock", "fund", "derivative", "crypto"]
+    instrument_list = ["stock", "fund", "derivative", "crypto", "bond"]
     jurisdiction_list = ["AT", "DE", "ES", "FR", "IT", "NL", "BE", "EE", "FI", "IE", "GR", "LU", "LT",
                          "LV", "PT", "SI", "SK"]
     expiry_list = ["gfd", "gtd", "gtc"]
@@ -206,8 +207,8 @@ class TRApi:
         if range not in self.range_list:
             raise TRapiException(f"Range of time must be either one of {self.range_list}")
 
-        if exchange not in self.exchange_list:
-            raise TRapiException(f"exchange must be either one of {self.exchange_list}")
+        # if exchange not in self.exchange_list:
+        #    raise TRapiException(f"exchange must be either one of {self.exchange_list}")
 
         return await self.sub(
             "aggregateHistoryLight",
@@ -216,7 +217,7 @@ class TRApi:
                      "id": f"{isin}.{exchange}",
                      "resolution": resolution},
             callback=callback,
-            key=f"aggregateHistoryLight {isin} {exchange} {range}",
+            key=f"aggregateHistoryLight {isin} {exchange} {range} {resolution}",
         )
 
     async def available_cash(self, callback=print):
@@ -507,20 +508,46 @@ class TRApi:
 
     async def portfolio(self, callback=print):
         """portfolio"""
-        await self.sub("portfolio", callback)
+        # await self.sub("portfolio", callback)
+        return await self.sub(
+            "portfolio",
+            payload={"type": "portfolio", "topic": "stock"},
+            callback=callback,
+            key=f"portfolio stock",
+        )
 
-    async def portfolio_aggregate_history(self, range="max", callback=print):
+    async def portfolio_aggregate_history(self, range="max", resolution=604800000, callback=print):
         """portfolioAggregateHistory request"""
         if range not in self.range_list:
             raise TRapiException(f"Range of time must be either one of {self.range_list}")
         return await self.sub(
             "portfolioAggregateHistory",
-            payload={"type": "portfolioAggregateHistory", "range": range},
+            payload={"type": "portfolioAggregateHistory",
+                     "range": range,
+                     "resolution": resolution},
             callback=callback,
-            key=f"portfolioAggregateHistory {range}",
+            key=f"portfolioAggregateHistory {range} {resolution}",
         )
 
-    # todo portfolioAggregateHistoryLight
+    async def portfolio_aggregate_history_light(self, range="max", resolution=604800000, callback=print):
+        """portfolioAggregateHistoryLight request
+
+        Login required
+
+        :param range: the range to display ("1d", "5d", "1m", "3m", "1y", "max")
+        :param resolution: the resolution in milliseconds; the default is 7 days
+        """
+        if range not in self.range_list:
+            raise TRapiException(f"Range of time must be either one of {self.range_list}")
+        return await self.sub(
+            "portfolioAggregateHistoryLight",
+            payload={"type": "portfolioAggregateHistoryLight",
+                     "range": range,
+                     "resolution": resolution},
+            callback=callback,
+            key=f"portfolioAggregateHistoryLight {range} {resolution}",
+        )
+
     async def portfolio_status(self, callback=print):
         """portfolioStatus request"""
         return await self.sub("portfolioStatus", callback)
@@ -680,6 +707,18 @@ class TRApi:
         return await self.sub("watchlist", callback)
 
     #  todo watchlists
+
+    async def yield_to_maturity(self, isin, callback=print):
+        """yieldToMaturity request
+
+        :param: isin
+        """
+        await self.sub(
+            "yieldToMaturity",
+            callback=callback,
+            payload={"type": "yieldToMaturity", "id": isin},  # todo: variable jurisdiction , "jurisdiction": "DE"?
+            key=f"yieldToMaturity {isin}",
+        )
 
     # -----------------------------------------------------------
     # old names of functions
@@ -902,6 +941,9 @@ class TrBlockingApi(TRApi):
     def cash(self):
         return asyncio.get_event_loop().run_until_complete(self.get_one(super().cash()))
 
+    def compact_portfolio(self):
+        return asyncio.get_event_loop().run_until_complete(self.get_one(super().compact_portfolio()))
+
     def instrument(self, id):
         return asyncio.get_event_loop().run_until_complete(
             self.get_one(super().instrument(id))
@@ -929,9 +971,19 @@ class TrBlockingApi(TRApi):
             self.get_one(super().portfolio())
         )
 
-    def portfolio_aggregate_history(self, range="max"):
+    def portfolio_aggregate_history(self, range="max", resolution=604800000):
         return asyncio.get_event_loop().run_until_complete(
-            self.get_one(super().portfolio_aggregate_history(range=range))
+            self.get_one(super().portfolio_aggregate_history(range=range, resolution=resolution))
+        )
+
+    def portfolio_aggregate_history_light(self, range="max", resolution=604800000):
+        return asyncio.get_event_loop().run_until_complete(
+            self.get_one(super().portfolio_aggregate_history_light(range=range, resolution=resolution))
+        )
+
+    def portfolio_status(self):
+        return asyncio.get_event_loop().run_until_complete(
+            self.get_one(super().portfolio_status())
         )
 
     def stock_detail_dividends(self, isin):
@@ -962,6 +1014,11 @@ class TrBlockingApi(TRApi):
     def timeline_detail(self, id):
         return asyncio.get_event_loop().run_until_complete(
             self.get_one(super().timeline_detail(id=id))
+        )
+
+    def yield_to_maturity(self, isin):
+        return asyncio.get_event_loop().run_until_complete(
+            self.get_one(super().yield_to_maturity(isin))
         )
 
     # -----------------------------------------------------------
